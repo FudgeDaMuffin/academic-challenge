@@ -50,6 +50,8 @@ body {
 #start {
     position:relative;
     top: 156px;
+    width:540px;
+    margin:0 auto;
 }
 .game-button {
     width: 256px;
@@ -59,12 +61,14 @@ body {
     font-size:32px;
     border:1px solid #00171F;
     border-radius:1px; 
+    font-family:'Roboto'
 }
 #gameForm {
     position:relative;
     top: 156px;
     width:480px;
     margin:0 auto;
+    font-family:'Roboto'
 }
 #gameForm > * {
     text-align:center;
@@ -237,6 +241,7 @@ body {
 -moz-box-shadow: 1px 5px 5px 3px rgba(80,166,163,1);
 box-shadow: 1px 5px 5px 3px rgba(80,166,163,1);
     font-family: 'Roboto Condensed', sans-serif;
+    
 }
 #popupHead {
     background-color:#307371;
@@ -248,12 +253,25 @@ box-shadow: 1px 5px 5px 3px rgba(80,166,163,1);
 }
 #popupTitle {
     width:320px;
-    font-size: 24px
+    font-size: 32px;
+    margin:auto 12px;
+    font-weight:600;
+}
+#closeIcon {
+    width:24px;
+    height:24px;
+    position:relative;
+    cursor:pointer;
+    margin:auto 12px;
 }
 #popupContent {
     padding:4px 8px;
     background-color:#56BFBC;
     border-radius: 0 0 4px 4px;
+    margin: 8px 12px;
+    font-family:'Roboto';
+    font-size:16px;
+    line-height:20px;
 }
 .playerGrid {
     display:flex;
@@ -303,7 +321,8 @@ box-shadow: 1px 5px 5px 3px rgba(80,166,163,1);
 }
 #playerMenuOption:hover {
     background-color:#4BB4B0;
-}#playerMenuOption:active {
+}
+#playerMenuOption:active {
     background-color:#3A7876;
 }
 #scorekeeperRow {
@@ -321,4 +340,19 @@ box-shadow: 1px 5px 5px 3px rgba(80,166,163,1);
     border:1px solid #00171F;
     border-radius:1px; 
     margin:4px;
+}
+#qControl {
+    width:292px;
+}
+#startAbout {
+    width:24px;
+    height:24px;
+    position:absolute;
+    cursor:pointer;
+    top:0;
+    right:0;
+}
+#startAbout > img {
+    width:inherit;
+    height:inherit
 }

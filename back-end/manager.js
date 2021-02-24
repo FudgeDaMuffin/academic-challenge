@@ -29,21 +29,27 @@ app.use((req, res, next) =>{
     next();
 });
 io.on('connection',socket=>{
+    //all of the listeners for different events emitted from the frontend
     let emptyGame = {referees:[],team1:[],team2:[],scorekeepers:[]}
     socket.on("user_connect",(data)=>{
+        // checks if user's session is valid upon connection
         MongoClient.connect(url,(err,db)=>{
             if (err) throw err
             const dbo=db.db("gamedb")
             dbo.collection("sessions").findOne({id:data.sessionID},(err,result)=>{
                 if (err) throw err
                 if (result!=null) {
+                    
                     userData=result.userData
+                    // if the session exists, add it to the socketio room with others from the same game
                     socket.join(userData.gameID)
                 }
             })
         })
     })
     socket.on("admin_remove",(data)=>{
+        // removes the given admin from their game
+        // all of these admin commands use checkAdminSession to make sure that it's an admin making these commands
         checkAdminSession(data.sessionID).then((valid)=>{
             if (valid[0]){
                 MongoClient.connect(url,(err,db)=>{
@@ -61,6 +67,7 @@ io.on('connection',socket=>{
         })   
     })
     socket.on("question_ask",(data)=>{
+        // when an admin asks a question, updates the game
         checkAdminSession(data.sessionID).then((valid)=>{
             MongoClient.connect(url,(err,db)=>{
                 if (err) throw err
@@ -72,7 +79,6 @@ io.on('connection',socket=>{
                 }
                 dbo.collection("activeGames").updateOne({id:valid[1]},updateQuery,(err,result)=>{
                     if (err) throw err
-                    console.log(data)
                     db.close()
                     updateGame(valid[1])
                 })
@@ -81,6 +87,7 @@ io.on('connection',socket=>{
         })
     })
     socket.on("question_answer",(data)=>{
+        // when a user buzzes in, updates the game to show who did
         MongoClient.connect(url,(err,db)=>{
             if (err) throw err
             const dbo=db.db("gamedb")
@@ -97,6 +104,7 @@ io.on('connection',socket=>{
         })
     })
     socket.on("buzzer_reset",(data)=>{
+        // when an admin resets the buzzer, updates
         checkAdminSession(data.sessionID).then((valid)=>{
             MongoClient.connect(url,(err,db)=>{
                 if (err) throw err
@@ -111,21 +119,29 @@ io.on('connection',socket=>{
     })
 })
 app.get('/',(req,res)=>{
+    //had a weird bug where I'd occasionally get GETs that were "undefined." havent pinned it down and havent gotten one in the process of fixing up this file. this checks for it and helps me figure it out
+    if (req.query.data=="undefined") {
+        console.log("Error in received request: "+req.query.data)
+        res.end(JSON.stringify(new Error("Request received was undefined.")))
+    }
     let data=JSON.parse(req.query.data)
     if(data.hasOwnProperty("reqType")){
         if (data.reqType=="joinGame"){
+            // sends user game data after joining so they can choose a team
             let gameID=data.gameData.gameID
             MongoClient.connect(url,(err,db)=>{
                 if (err) throw err
                 const dbo=db.db("gamedb")
                 dbo.collection("activeGames").findOne({id:gameID},(err,result)=>{
                     if (err) throw err
+                    // failure() function gives a non-Error response with {result:false}, so its better handled by frontend. you'll see it a lot
                     if (result==null) res.end(failure("Game ID Not Found"))
                     else {
                         let username=data.gameData.name
                         if (result.team1.totalRoster.includes(username)||result.team2.totalRoster.includes(username)||result.referees.includes(username)){
                             res.end(failure("Name Already in Use"))
                         }
+                        // these two names are forbidden, nobody because it's used for empty players, and kickedPlayer because its used by frontend to denote kicked players
                         else if (username =="nobody"||username=="kickedPlayer") res.end(failure("Name Forbidden"))
                         else res.end(success("Game Data Retrieved!",reformatGameData(result)))
                     }
@@ -133,6 +149,7 @@ app.get('/',(req,res)=>{
             })
         }
         else if (data.reqType=="sessionRetrieve"){
+            // when a user rejoins the front end with a session cookie, this verifies it
             let sessionID = data.sessionID
             MongoClient.connect(url,(err,db)=>{
                 if (err) throw err
@@ -144,12 +161,12 @@ app.get('/',(req,res)=>{
                     else {
                         dbo.collection("activeGames").findOne({id:user.userData.gameID},(err,match)=>{
                             if (err) throw err
+                            // this is an Error rather than a failure because when a game is deleted, all sessions are deleted with it, so this should never happen
                             if (match==null||match==undefined||match=="") res.end(JSON.stringify(new Error("Nonexistent Game ID Associated with Session")))
                             else {
                                 res.end(success("Session Data Retrieved!",{userData:user.userData,gameData:reformatGameData(match)}))
                             }
                         })
-                        
                     }
                     db.close()
                 })
@@ -157,7 +174,6 @@ app.get('/',(req,res)=>{
         }
     }
     else { res.end(JSON.stringify(new Error("No Request Type Given"))) }
-    
 })
 
 app.post('/',(req,res)=>{
@@ -167,27 +183,52 @@ app.post('/',(req,res)=>{
         data=JSON.parse(data)
         if (data.hasOwnProperty("reqType")){
             if (data.reqType=="newGame"){
+                //when a user creates a new game
                 let gameData = data.gameData;
                 MongoClient.connect(url,(err,db)=>{
                     if (err) throw err
                     const dbo = db.db("gamedb")
+                    // IDgenerator generates new 4-character numerical ID
                     IDGenerator("gamedb","activeGames","1234567890",4).then((matchID)=>{
-                            let match = {referees:[gameData.admin],scorekeepers:[],team1:{name:gameData.team1,score:0,activeRoster:[],totalRoster:[],captain:""},team2:{name:gameData.team2,score:0,activeRoster:[],totalRoster:[],captain:""},asked:false,answered:false,whoAnswered:"",began:Date.now(),id:matchID}
+                            // these are all of the attributes of a game in the database
+                            let match = {
+                                referees:[gameData.admin],
+                                scorekeepers:[],
+                                team1:{
+                                    name:gameData.team1,
+                                    score:0,
+                                    activeRoster:[],
+                                    totalRoster:[],
+                                    captain:""},
+                                team2:{
+                                    name:gameData.team2,
+                                    score:0,
+                                    activeRoster:[],
+                                    totalRoster:[],
+                                    captain:""},
+                                asked:false,
+                                answered:false,
+                                whoAnswered:"",
+                                began:Date.now(),
+                                id:matchID}
                             dbo.collection("activeGames").insertOne(match,(err,result)=>{
                                 if (err) throw err
                                 console.log("New match "+matchID+" between '"+gameData.team1+"' and '"+gameData.team2+"' began.")  
-                            res.end(success("New match successfully started!",reformatGameData(match)))
-                            db.close()
-                        })
+                                res.end(success("New match successfully started!",reformatGameData(match)))
+                                db.close()
+                            })
                     })
                 })
             }
             else if (data.reqType=="sessionAdd") {
+                // when a new user joins and a session is created
                 let userData = data.userData
                 MongoClient.connect(url,(err,db)=>{
                     if (err) throw err
                     const dbo=db.db("gamedb")
+                    // this time, the ID generator uses a 12 character alphanumerical id for the session
                     IDGenerator("gamedb","sessions","1234567890qwertyuiopasdfghjklzxcvbnm",12).then((sessionID)=>{
+                        // new sessions consist of an id and userData, and the userdata has their name, which game theyre in, and their role
                         let session = {id:sessionID,userData:userData}
                         dbo.collection("sessions").insertOne(session,(err,result)=>{
                             if (err) throw err
@@ -198,6 +239,7 @@ app.post('/',(req,res)=>{
                 })
             }
             else if (data.reqType=="sessionEnd") {
+                // when a session is ended
                 let userData = data.userData
                 MongoClient.connect(url,(err,db)=>{
                     if (err) throw err
@@ -224,6 +266,7 @@ app.post('/',(req,res)=>{
                                 })
                             }
                             else if (result.userData.playerType=="playing"||result.userData.playerType=="scorekeeper"||result.userData.playerType=="active"){
+                                // this long query pulls from all possible places the player could be
                                 dbo.collection("activeGames").updateOne({id:gameID},{$pull:{"team1.totalRoster":result.userData.name,"team2.totalRoster":result.userData.name,"team1.activeRoster":result.userData.name,"team2.activeRoster":result.userData.name,scorekeepers:result.userData.name}},(err,match)=>{
                                     if (err) throw err
                                     updateGame(gameID)
@@ -231,25 +274,28 @@ app.post('/',(req,res)=>{
                                     db.close()
                                 })
                             }
-                            
-                        }
-                        
+                        }      
                     })
                 })
             }
             else if (data.reqType=="teamJoin") {
+                // when a newly joined user chooses a team
                 let userData = data.userData
                 MongoClient.connect(url,(err,db)=>{
                     if (err) throw err
                     const dbo=db.db("gamedb")
                     dbo.collection("sessions").findOne({id:userData.sessionID},(err,result)=>{
+                        //finds unchosen user in sessions to get what game theyre in 
                         if (err) throw err
                         if (result!=null&&result.userData.playerType=="joining"){
+                            // if user exists and hasnt chosen a team, edit the userData in both sessions and in the game so that theyve joined a team officially
                             let newUserData= result.userData
                             newUserData.playerType="playing"
                             newUserData.team=userData.team
+                            //changing the userdata in the sessions
                             dbo.collection("sessions").findOneAndUpdate({id:userData.sessionID},{$set:{userData:newUserData}},(err,session)=>{
                                 if (err) throw err
+                                // creating the updateQuery, which edits the appropriate roster to add the player
                                 let updateQuery = {}
                                 updateQuery.$push={}
                                 updateQuery.$push[userData.team+".totalRoster"]=session.value.userData.name
@@ -258,17 +304,16 @@ app.post('/',(req,res)=>{
                                     updateGame(session.value.userData.gameID)
                                     db.close()
                                     res.end(success("Player successfully added to game!",{playerType:"playing"}))
-                                    
                                 })
                             })
-                            
                         }
                     })
                 })
             }
             else if (data.reqType=="adminCommand"){
-                
+                // when an admin edits a user or any other command
                 checkAdminSession(data.session).then((valid)=>{
+                    // if valid[0] is true, that means its a valid admin session
                     if (valid[0]) {
                         let gameID= valid[1]
                         let username=data.commandQuery.name
@@ -276,6 +321,7 @@ app.post('/',(req,res)=>{
                             if (err) throw err
                             const dbo = db.db("gamedb")
                             switch(data.commandQuery.command) {
+                                // toggles if a user is on the active roster
                                 case "toggleActive":
                                     dbo.collection("activeGames").findOne({id:gameID},(err,match)=>{
                                         if (err) throw err
@@ -311,6 +357,7 @@ app.post('/',(req,res)=>{
                                         }
                                     })
                                     break;
+                                //if user is made an admin
                                 case "toggleAdmin":
                                     dbo.collection("activeGames").findOne({id:gameID},(err,match)=>{
                                         if (err) throw err
@@ -335,11 +382,13 @@ app.post('/',(req,res)=>{
                                         }
                                     })
                                     break;
+                                //toggles if a player is a scorekeepr
                                 case "toggleScorekeeper":
                                     dbo.collection("activeGames").findOne({id:gameID},(err,match)=>{
                                         if (err) throw err
                                         
                                         if (!match.scorekeepers.includes(username)){
+                                            //if this user is a scorekeeper in the game, add them as a scorekeeper
                                             dbo.collection("sessions").updateOne({"userData.gameID":gameID,"userData.name":username},{$set:{"userData.playerType":"scorekeeper"}},(err,result)=>{
                                                 if (err) throw err
                                                 dbo.collection("activeGames").updateOne({id:gameID},{$push:{scorekeepers:username}},(err,result)=>{
@@ -351,6 +400,7 @@ app.post('/',(req,res)=>{
                                             })
                                         }
                                         else {
+                                            // if they arent a scorekeeper, remove them from the scorekeeper array
                                             dbo.collection("sessions").updateOne({"userData.gameID":gameID,"userData.name":username},{$set:{"userData.playerType":"playing"}},(err,result)=>{
                                                 if (err) throw err
                                                 dbo.collection("activeGames").updateOne({id:gameID},{$pull:{scorekeepers:username}},(err,result)=>{
@@ -364,13 +414,16 @@ app.post('/',(req,res)=>{
                                         }
                                     })
                                     break;
+                                //kicks a player
                                 case "kickPlayer":
-                                    console.log("kick")
+                                    // removes from sessions
                                     dbo.collection("sessions").deleteOne({"userData.gameID":gameID,"userData.name":username},(err,result)=>{
                                         if (err) throw err
+                                        //removes username from all possible places
                                         dbo.collection("activeGames").updateOne({id:gameID},{$pull:{"team1.activeRoster":username,"team2.activeRoster":username,"team1.totalRoster":username,"team2.totalRoster":username,"scorekeepers":username}},(err,match)=>{
                                             if (err) throw err
                                             updateGame(gameID)
+                                            // emits event so that user will know theyre kicked
                                             io.to(gameID).emit('player_kick',{name:username})
                                             db.close()
                                             res.end(success("Player kicked!"))
@@ -385,13 +438,16 @@ app.post('/',(req,res)=>{
                     else res.end(failure("Admin Session Invalid"))
                 })
             }
+            // when a scorekeeper changes the score
             else if (data.reqType=="scoreChange") {
                 MongoClient.connect(url,(err,db)=>{
                     if (err) throw err
                     const dbo=db.db("gamedb")
+                    // checking if user is a scorekeeper and getting their game ID
                     dbo.collection("sessions").findOne({id:data.userData.sessionID},(err,result)=>{
                         if (err) throw err
                         if (result.userData.playerType=="scorekeeper"){
+                            // query increases the score of the appropriate team by one
                             let query = {$inc:{}}
                             query.$inc[data.team+".score"]=data.amount
                             dbo.collection("activeGames").updateOne({id:result.userData.gameID},query,(err,match)=>{
@@ -409,6 +465,7 @@ app.post('/',(req,res)=>{
         else  res.end(JSON.stringify(new Error("No Request Type Given"))) 
     })
 })
+// ends the given game id for the given reason
 const endGame = (gameID,reason)=>{
     return new Promise((resolve,reject)=>{
         MongoClient.connect(url,(err,db)=>{
@@ -417,12 +474,13 @@ const endGame = (gameID,reason)=>{
             dbo.collection("activeGames").deleteOne({id:gameID},(err,matchResult)=>{
                 if (err) throw err
                 if (matchResult.result.ok==1) {
+                    // if match successfully deleted, remove all sessions from the game
                     dbo.collection("sessions").deleteMany({"userData.gameID":gameID},(err,sessionResult)=>{
                         if (err) throw err
                         if (sessionResult.result.ok==1){
                             console.log("Game ID "+gameID+" has been ended.")
+                            // emits to all users that the game has ended
                             io.to(gameID).emit('game_end',reason)
-                            
                             resolve(gameID)
                         }
                         else {
@@ -430,7 +488,6 @@ const endGame = (gameID,reason)=>{
                         }
                         db.close()
                     })
-                    
                 }
                 else {
                     reject("Deletion unsuccessful.")
@@ -440,6 +497,7 @@ const endGame = (gameID,reason)=>{
         })
     })
 }
+//updates given gameID and emits to all users that it's been updated
 const updateGame = (gameID)=>{
     MongoClient.connect(url,(err,db)=>{
         if (err) throw err
@@ -472,6 +530,7 @@ const IDGenerator= async(mydb,collection,chars,size)=>{
         })
     })
 }
+// checks if the given session is an admin. used with a variety of admin commands
 const checkAdminSession =(sessionID)=>{
     return new Promise((resolve,reject)=>{
         MongoClient.connect(url,(err,db)=>{
@@ -480,16 +539,19 @@ const checkAdminSession =(sessionID)=>{
             dbo.collection('sessions').findOne({id:sessionID},(err,result)=>{
                 if (err) throw err
                 db.close()
+                // if it is/isnt an admin session, the promise resolves and it passes to the function with an array : [admin status, game ID]
                 if (result==null||result.userData.playerType!="admin") resolve(false)
                 else resolve([true,result.userData.gameID])
             })
         })
     })
 }
+//success function, to be sent back to the frontend with data
 const success =(reason,data)=>{ return JSON.stringify({result:true,reason:reason,respData:data}) }
+//failure, just the false result and the reason why
 const failure =(reason)=>{return JSON.stringify({result:false,reason:reason})}
 const reformatGameData = (match)=>{
-    //reformats game data for front-end friendly form
+    //reformats game data for front-end friendly form. may not be entirely necessary but makes things easier
     if (match !=null) {
         return {
                     team1:match.team1.name,
@@ -512,11 +574,13 @@ const reformatGameData = (match)=>{
         }
     else return ""
 }
+// removes matches on an interval
 const removeInactiveMatches = async() =>{
     //TODO: remove matches based on inactivity, not time elapsed
     MongoClient.connect(url,(err,db)=>{
         if (err) throw err
         const dbo = db.db("gamedb")
+        //removes every 5 hours
         let cutoff = Date.now()-18000000
         dbo.collection("activeGames").find({began:{$lt:cutoff}},(err,result)=>{
             if (err) throw err
@@ -524,14 +588,15 @@ const removeInactiveMatches = async() =>{
             result.forEach((match)=>{
                 matchEndPromises.push(endGame(match.id,"Inactive for too long."))
             })
+            // ends all matches in list of promises
             Promise.all(matchEndPromises).then((deletedIDs)=>{
                 db.close()
             })
         })
     })
 }
-
-setInterval(async()=>{ await removeInactiveMatches() }, 3000000);
+//checks for and removes inactive matches every 5 mins
+setInterval(async()=>{ await removeInactiveMatches() }, 300000);
 httpsServer.listen(3001, ()=>{
     console.log("manager.js listening on 3001")
 });
